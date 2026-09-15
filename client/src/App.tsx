@@ -399,24 +399,36 @@ export default function App() {
   const prepareDepositMutation = trpc.groupPay.prepareDeposit.useMutation();
   const recordSubmittedMutation = trpc.groupPay.recordSubmittedTransaction.useMutation();
   const confirmTransactionMutation = trpc.groupPay.confirmTransaction.useMutation({ onSuccess: () => utils.groupPay.snapshot.invalidate() });
-  const connectWalletMutation = trpc.groupPay.connectWallet.useMutation();
+  const syncEventsMutation = trpc.groupPay.syncEvents.useMutation({
+    onSuccess: () => utils.groupPay.snapshot.invalidate(),
+  });
 
   const groups = useMemo(() => {
     const serverGroups = (snapshotQuery.data?.wallets ?? []).map(mapGroup);
-    if (serverGroups.length === 0) return FALLBACK_GROUPS;
-    const merged = [...FALLBACK_GROUPS];
-    serverGroups.forEach((serverGroup) => {
-      const index = merged.findIndex((group) => group.name === serverGroup.name);
-      if (index >= 0) merged[index] = serverGroup;
-      else merged.unshift(serverGroup);
-    });
-    return merged;
-  }, [snapshotQuery.data?.wallets]);
+    if (address) {
+      // When wallet is connected, show ONLY real user groups (no dummy data)
+      return serverGroups;
+    }
+    return serverGroups.length > 0 ? serverGroups : FALLBACK_GROUPS;
+  }, [snapshotQuery.data?.wallets, address]);
 
   const transactions = useMemo(() => {
     const serverTransactions = (snapshotQuery.data?.transactions ?? []).map(mapTransaction);
-    return serverTransactions.length ? serverTransactions : FALLBACK_TRANSACTIONS;
-  }, [snapshotQuery.data?.transactions]);
+    if (address) {
+      // When wallet is connected, show ONLY real user transactions (no dummy data)
+      return serverTransactions;
+    }
+    return serverTransactions.length > 0 ? serverTransactions : FALLBACK_TRANSACTIONS;
+  }, [snapshotQuery.data?.transactions, address]);
+
+  // Periodic indexer sync to poll onchain contract events on Monad testnet (Phase 4)
+  useEffect(() => {
+    if (!address) return;
+    const interval = window.setInterval(() => {
+      syncEventsMutation.mutate();
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [address]);
 
   function navigate(tab: Tab) {
     setActiveTab(tab);

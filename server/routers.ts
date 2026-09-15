@@ -15,6 +15,8 @@ import {
   updateGroupTransaction,
 } from "./db";
 
+import { syncGroupPayEvents } from "./indexer";
+
 const categorySchema = z.enum(["Trip", "Friends", "Couple", "Team", "Roommates", "Custom"]);
 const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Enter a valid EVM address.");
 const txHashSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/, "Enter a valid transaction hash.");
@@ -43,6 +45,11 @@ export const appRouter = router({
         listGroupTransactions(ownerId),
       ]);
       return { wallets, transactions };
+    }),
+
+    /** Triggers onchain event indexer sync for Monad contract. */
+    syncEvents: publicProcedure.mutation(async () => {
+      return syncGroupPayEvents(0n);
     }),
 
     /** Creates a wallet and returns the inserted row for optimistic UI hydration. */

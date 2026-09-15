@@ -145,13 +145,19 @@ const fallbackConnections: WalletConnection[] = [];
 
 export async function listGroupWallets(ownerId: number) {
   const db = await getDb();
-  if (!db) return fallbackWallets.filter((wallet) => wallet.ownerId === 0 || wallet.ownerId === ownerId);
+  if (!db) {
+    if (ownerId > 0) return fallbackWallets.filter((wallet) => wallet.ownerId === ownerId);
+    return fallbackWallets;
+  }
   return db.select().from(groupWallets).where(eq(groupWallets.ownerId, ownerId));
 }
 
 export async function listGroupTransactions(ownerId: number) {
   const db = await getDb();
-  if (!db) return fallbackTransactions.filter((tx) => tx.ownerId === 0 || tx.ownerId === ownerId);
+  if (!db) {
+    if (ownerId > 0) return fallbackTransactions.filter((tx) => tx.ownerId === ownerId);
+    return fallbackTransactions;
+  }
   return db.select().from(groupTransactions).where(eq(groupTransactions.ownerId, ownerId));
 }
 
@@ -262,3 +268,82 @@ export async function saveWalletConnection(ownerId: number, draft: Omit<WalletCo
   const rows = await db.select().from(walletConnections).where(eq(walletConnections.id, insertedId)).limit(1);
   return rows[0];
 }
+
+export async function syncOnchainEventToDatabase(event: {
+  eventName: string;
+  groupId: number | null;
+  actorAddress: string | null;
+  counterpartyAddress: string | null;
+  amountBaseUnits: string | null;
+  note: string | null;
+  txHash: string;
+  blockNumber: string;
+}) {
+  const db = await getDb();
+  if (!event.groupId) return;
+
+  const amountWei = event.amountBaseUnits ? BigInt(event.amountBaseUnits) : 0n;
+  const amountCents = Number(amountWei / 10_000_000_000_000_000n); // 1 MON = 1e18 wei = $100 equivalent scale or cent unit
+
+  if (!db) {
+    const wallet = fallbackWallets.find((w) => w.contractGroupId === event.groupId);
+    if (wallet) {
+      if (event.eventName === "FundsReceived") {
+        wallet.balanceCents += amountCents;
+        wallet.totalContributedCents += amountCents;
+      } else if (event.eventName === "FundsSent") {
+        wallet.balanceCents = Math.max(0, wallet.balanceCents - amountCents);
+        wallet.totalSpentCents += amountCents;
+      } else if (event.eventName === "GroupClosed") {
+        wallet.status = "Settled";
+      }
+    }
+    const tx = fallbackTransactions.find((t) => t.txHash === event.txHash);
+    if (tx) {
+      tx.lifecycleStatus = "confirmed";
+      tx.status = "Completed";
+      tx.blockNumber = event.blockNumber;
+    }
+    return;
+  }
+
+  const walletRows = await db.select().from(groupWallets).where(eq(groupWallets.contractGroupId, event.groupId)).limit(1);
+  if (walletRows.length > 0) {
+    const wallet = walletRows[0];
+    let newBalance = wallet.balanceCents;
+    let newContributed = wallet.totalContributedCents;
+    let newSpent = wallet.totalSpentCents;
+    let newStatus = wallet.status;
+
+    if (event.eventName === "FundsReceived") {
+      newBalance += amountCents;
+      newContributed += amountCents;
+    } else if (event.eventName === "FundsSent") {
+      newBalance = Math.max(0, newBalance - amountCents);
+      newSpent += amountCents;
+    } else if (event.eventName === "GroupClosed") {
+      newStatus = "Settled";
+    }
+
+    await db
+      .update(groupWallets)
+      .set({
+        balanceCents: newBalance,
+        totalContributedCents: newContributed,
+        totalSpentCents: newSpent,
+        status: newStatus,
+        balanceBaseUnits: event.amountBaseUnits ? (BigInt(wallet.balanceBaseUnits || "0") + (event.eventName === "FundsReceived" ? amountWei : -amountWei)).toString() : wallet.balanceBaseUnits,
+      })
+      .where(eq(groupWallets.id, wallet.id));
+  }
+
+  await db
+    .update(groupTransactions)
+    .set({
+      lifecycleStatus: "confirmed",
+      status: "Completed",
+      blockNumber: event.blockNumber,
+    })
+    .where(eq(groupTransactions.txHash, event.txHash));
+}
+

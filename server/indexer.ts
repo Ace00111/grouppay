@@ -1,5 +1,5 @@
 import { createPublicClient, decodeEventLog, defineChain, http, type Address, type Hex } from "viem";
-import { recordContractEvent } from "./db";
+import { recordContractEvent, syncOnchainEventToDatabase } from "./db";
 
 const monadTestnet = defineChain({
   id: 10143,
@@ -71,7 +71,7 @@ export async function syncGroupPayEvents(fromBlock: bigint, toBlock?: bigint) {
     }
     const args = decoded.args;
     const groupId = typeof args.groupId === "bigint" ? Number(args.groupId) : null;
-    await recordContractEvent({
+    const eventPayload = {
       eventKey: `${log.transactionHash}:${log.logIndex}`,
       chainId: String(monadTestnet.id),
       contractAddress,
@@ -83,8 +83,11 @@ export async function syncGroupPayEvents(fromBlock: bigint, toBlock?: bigint) {
       counterpartyAddress: typeof args.to === "string" ? args.to : null,
       amountBaseUnits: typeof args.amount === "bigint" ? args.amount.toString() : null,
       note: typeof args.name === "string" ? args.name : typeof args.note === "string" ? args.note : null,
-    });
+    };
+    await recordContractEvent(eventPayload);
+    await syncOnchainEventToDatabase(eventPayload);
     synced += 1;
   }
   return { synced, skipped: false as const, fromBlock: fromBlock.toString(), toBlock: toBlock?.toString() };
 }
+
