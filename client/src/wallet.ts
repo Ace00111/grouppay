@@ -7,8 +7,8 @@ export const monadTestnet = defineChain({
   id: 10143,
   name: "Monad Testnet",
   nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
-  rpcUrls: { default: { http: ["https://testnet-rpc.monad.xyz"] } },
-  blockExplorers: { default: { name: "Monadscan", url: "https://testnet.monadexplorer.com" } },
+  rpcUrls: { default: { http: ["https://rpc.testnet.monad.xyz"] } },
+  blockExplorers: { default: { name: "Monadscan", url: "https://testnet.monadscan.com" } },
   testnet: true,
 });
 
@@ -18,7 +18,7 @@ export const monadTestnet = defineChain({
  */
 export const walletConfig = getDefaultConfig({
   appName: "GroupPay",
-  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "grouppay-preview-project-id",
+  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "3a700a2f0aae0324c6d8336a21016ac5",
   chains: [monadTestnet, mainnet, base, optimism, polygon],
   ssr: false,
 });
